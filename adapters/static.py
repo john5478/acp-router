@@ -25,7 +25,7 @@ class StaticAdapter(Adapter):
         self.aliases = [a.strip().lower() for a in (aliases or [])]
         self.env_var_prefix = (env_var_prefix or self.agent_id).upper().replace("-", "_")
 
-    def build_spec(self, optional_params: Dict[str, Any]) -> AgentSpec:
+    def build_spec(self, model: str, optional_params: Dict[str, Any]) -> AgentSpec:
         bin_value = (
             optional_params.get(f"{self.agent_id}_bin")
             or optional_params.get("agent_bin")
@@ -47,6 +47,14 @@ class StaticAdapter(Adapter):
             or self.default_mode_id
         )
 
+        session_model_id = (
+            optional_params.get(f"{self.agent_id}_model_id")
+            or optional_params.get("agent_model_id")
+        )
+
+        if not session_model_id:
+            session_model_id = model.strip()
+
         bootstrap_value = (
             optional_params.get(f"{self.agent_id}_bootstrap_commands")
             or optional_params.get("bootstrap_commands")
@@ -62,5 +70,6 @@ class StaticAdapter(Adapter):
             bin=str(bin_value),
             args=[str(x) for x in args],
             mode_id=str(mode_id) if mode_id else None,
+            session_model_id=str(session_model_id) if session_model_id else None,
             bootstrap_commands=[str(x) for x in bootstrap_commands],
         )

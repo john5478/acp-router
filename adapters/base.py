@@ -13,5 +13,5 @@ class Adapter:
             return False
         return normalized == self.agent_id or normalized in self.aliases
 
-    def build_spec(self, optional_params: Dict[str, Any]) -> AgentSpec:
+    def build_spec(self, model: str, optional_params: Dict[str, Any]) -> AgentSpec:
         raise NotImplementedError

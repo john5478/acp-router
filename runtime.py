@@ -94,11 +94,19 @@ class Runtime:
                 mcp_servers=mcp_servers,
             )
 
+            if spec.session_model_id:
+                try:
+                    set_model_func = getattr(conn, "set_session_model", getattr(conn, "set_model", None))
+                    if callable(set_model_func):
+                        await set_model_func(session_id=session.session_id, model_id=spec.session_model_id)
+                except Exception:
+                    pass
+
             if spec.mode_id:
                 try:
-                    set_mode = getattr(conn, "set_mode", None)
-                    if callable(set_mode):
-                        await set_mode(session_id=session.session_id, mode_id=spec.mode_id)
+                    set_mode_func = getattr(conn, "set_session_mode", getattr(conn, "set_mode", None))
+                    if callable(set_mode_func):
+                        await set_mode_func(session_id=session.session_id, mode_id=spec.mode_id)
                 except Exception:
                     pass
 

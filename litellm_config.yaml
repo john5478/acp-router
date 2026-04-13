@@ -1,9 +1,15 @@
 model_list:
-  - model_name: acp-kimi
-    litellm_params:
-      model: acp/kimi
-
+- litellm_params:
+    agent: opencode
+    custom_llm_provider: acp
+    model: google/gemma-4-31b-it
+  model_name: google/gemma-4-31b-it
+- litellm_params:
+    agent: opencode
+    custom_llm_provider: acp
+    model: ollama-cloud/kimi-k2.5
+  model_name: ollama-cloud/kimi-k2.5
 litellm_settings:
   custom_provider_map:
-    - provider: acp
-      custom_handler: router.router_handler
+  - custom_handler: router.router_handler
+    provider: acp

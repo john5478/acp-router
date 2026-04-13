@@ -27,7 +27,7 @@ class RouterHandler(CustomLLM):
         tools = kwargs.get("tools") or optional_params.get("tools")
 
         adapter = self.registry.resolve(model=model, optional_params=optional_params)
-        spec = adapter.build_spec(optional_params=optional_params)
+        spec = adapter.build_spec(model=model, optional_params=optional_params)
         prompt_text = messages_to_prompt(messages, tools=tools) or "User: Hello"
 
         async for chunk in self.runtime.run_stream(
