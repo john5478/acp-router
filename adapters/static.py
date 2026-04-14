@@ -14,6 +14,7 @@ class StaticAdapter(Adapter):
         default_args: List[str],
         default_mode_id: Optional[str] = "code",
         default_bootstrap_commands: Optional[List[str]] = None,
+        default_teardown_cli_command: Optional[List[str]] = None,
         aliases: Optional[List[str]] = None,
         env_var_prefix: Optional[str] = None,
     ) -> None:
@@ -22,6 +23,7 @@ class StaticAdapter(Adapter):
         self.default_args = list(default_args)
         self.default_mode_id = default_mode_id
         self.default_bootstrap_commands = list(default_bootstrap_commands or [])
+        self.default_teardown_cli_command = list(default_teardown_cli_command or [])
         self.aliases = [a.strip().lower() for a in (aliases or [])]
         self.env_var_prefix = (env_var_prefix or self.agent_id).upper().replace("-", "_")
 
@@ -65,6 +67,16 @@ class StaticAdapter(Adapter):
             else list(self.default_bootstrap_commands)
         )
 
+        teardown_cli_value = (
+            optional_params.get(f"{self.agent_id}_teardown_cli_command")
+            or optional_params.get("teardown_cli_command")
+        )
+        teardown_cli_command = (
+            coerce_list(teardown_cli_value)
+            if teardown_cli_value is not None
+            else list(self.default_teardown_cli_command)
+        )
+
         return AgentSpec(
             agent_id=self.agent_id,
             bin=str(bin_value),
@@ -72,4 +84,5 @@ class StaticAdapter(Adapter):
             mode_id=str(mode_id) if mode_id else None,
             session_model_id=str(session_model_id) if session_model_id else None,
             bootstrap_commands=[str(x) for x in bootstrap_commands],
+            teardown_cli_command=[str(x) for x in teardown_cli_command] if teardown_cli_command else None,
         )

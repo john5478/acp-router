@@ -10,3 +10,4 @@ class AgentSpec:
     mode_id: Optional[str] = "code"
     session_model_id: Optional[str] = None
     bootstrap_commands: List[str] = field(default_factory=list)
+    teardown_cli_command: Optional[List[str]] = None

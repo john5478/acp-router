@@ -8,5 +8,6 @@ class OpenCodeAdapter(StaticAdapter):
             default_bin="opencode",
             default_args=["acp"],
             default_mode_id="default",
+            default_teardown_cli_command=["opencode", 'session', 'delete', '{session_id}'],
             env_var_prefix="OPENCODE"
         )

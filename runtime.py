@@ -153,6 +153,30 @@ class Runtime:
                 if not prompt_task.done():
                     prompt_task.cancel()
 
+                # Execute teardown CLI command if specified
+                if spec.teardown_cli_command and session and hasattr(session, "session_id"):
+                    try:
+                        cmd_args = [
+                            arg.replace("{session_id}", session.session_id)
+                            for arg in spec.teardown_cli_command
+                        ]
+                        proc = await asyncio.create_subprocess_exec(
+                            *cmd_args,
+                            stdout=asyncio.subprocess.DEVNULL,
+                            stderr=asyncio.subprocess.DEVNULL,
+                        )
+                        # Wait briefly for it to complete, but don't block forever
+                        try:
+                            await asyncio.wait_for(proc.wait(), timeout=5.0)
+                        except asyncio.TimeoutError:
+                            if proc.returncode is None:
+                                try:
+                                    proc.kill()
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+
         yield {
             "finish_reason": "stop",
             "index": 0,
