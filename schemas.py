@@ -11,3 +11,4 @@ class AgentSpec:
     session_model_id: Optional[str] = None
     bootstrap_commands: List[str] = field(default_factory=list)
     teardown_cli_command: Optional[List[str]] = None
+    session_model_cli_command: Optional[List[str]] = None

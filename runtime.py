@@ -87,6 +87,30 @@ class Runtime:
 
         client = AgentClient(permission_mode=permission_mode)
 
+        model_set_by_cli = False
+        if spec.session_model_cli_command:
+            try:
+                cmd_args = [
+                    arg.replace("{model_id}", spec.session_model_id or "")
+                    for arg in spec.session_model_cli_command
+                ]
+                proc = await asyncio.create_subprocess_exec(
+                    *cmd_args,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=5.0)
+                    model_set_by_cli = True
+                except asyncio.TimeoutError:
+                    if proc.returncode is None:
+                        try:
+                            proc.kill()
+                        except Exception:
+                            pass
+            except Exception:
+                pass
+
         async with spawn_agent_process(client, spec.bin, *spec.args) as (conn, _proc):
             await conn.initialize(protocol_version=protocol_version)
             session = await conn.new_session(
@@ -94,7 +118,7 @@ class Runtime:
                 mcp_servers=mcp_servers,
             )
 
-            if spec.session_model_id:
+            if spec.session_model_id and not model_set_by_cli:
                 try:
                     set_model_func = getattr(conn, "set_session_model", getattr(conn, "set_model", None))
                     if callable(set_model_func):

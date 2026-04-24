@@ -77,6 +77,16 @@ class StaticAdapter(Adapter):
             else list(self.default_teardown_cli_command)
         )
 
+        session_model_cli_value = (
+            optional_params.get(f"{self.agent_id}_session_model_cli_command")
+            or optional_params.get("session_model_cli_command")
+        )
+        session_model_cli_command = (
+            coerce_list(session_model_cli_value)
+            if session_model_cli_value is not None
+            else None
+        )
+
         return AgentSpec(
             agent_id=self.agent_id,
             bin=str(bin_value),
@@ -85,4 +95,5 @@ class StaticAdapter(Adapter):
             session_model_id=str(session_model_id) if session_model_id else None,
             bootstrap_commands=[str(x) for x in bootstrap_commands],
             teardown_cli_command=[str(x) for x in teardown_cli_command] if teardown_cli_command else None,
+            session_model_cli_command=[str(x) for x in session_model_cli_command] if session_model_cli_command else None,
         )

@@ -1,14 +1,50 @@
 model_list:
 - litellm_params:
-    agent: opencode
+    agent: cursor
     custom_llm_provider: acp
-    model: google/gemma-4-31b-it
-  model_name: google/gemma-4-31b-it
+    model: 'default[]'
+  model_name: default
 - litellm_params:
-    agent: opencode
+    drop_params: true
+    agent: cursor
     custom_llm_provider: acp
-    model: ollama-cloud/kimi-k2.5
-  model_name: ollama-cloud/kimi-k2.5
+    model: gpt-5.3-codex
+    session_model_cli_command:
+    - agent
+    - --model
+    - gpt-5.3-codex
+    - -p
+  model_name: gpt-5.3-codex
+- litellm_params:
+    agent: cursor
+    custom_llm_provider: acp
+    model: gemini-3.1-pro
+    session_model_cli_command:
+    - agent
+    - --model
+    - gemini-3.1-pro
+    - -p
+  model_name: gemini-3.1-pro
+- litellm_params:
+    agent: cursor
+    custom_llm_provider: acp
+    model: claude-4.6-sonnet-medium-thinking
+    session_model_cli_command:
+    - agent
+    - --model
+    - claude-4.6-sonnet-medium-thinking
+    - -p
+  model_name: claude-4.6-sonnet-medium-thinking
+- litellm_params:
+    agent: cursor
+    custom_llm_provider: acp
+    model: claude-4.6-opus-high-thinking
+    session_model_cli_command:
+    - agent
+    - --model
+    - claude-4.6-opus-high-thinking
+    - -p
+  model_name: claude-4.6-opus-high-thinking
 litellm_settings:
   custom_provider_map:
   - custom_handler: router.router_handler
