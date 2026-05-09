@@ -1,7 +1,7 @@
 import os
 
 # from adapters import KimiAdapter
-from adapters import GeminiAdapter, OpenCodeAdapter, CursorAdapter
+from adapters import GeminiAdapter, OpenCodeAdapter, CursorAdapter, KiroAdapter
 from registry import Registry
 from router_handler import RouterHandler
 
@@ -9,6 +9,7 @@ from router_handler import RouterHandler
 registry = Registry(default_agent=os.getenv("ROUTER_DEFAULT_AGENT", "gemini"))
 
 # registry.register(KimiAdapter())
+registry.register(KiroAdapter())
 registry.register(GeminiAdapter())
 registry.register(OpenCodeAdapter())
 registry.register(CursorAdapter())

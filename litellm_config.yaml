@@ -45,6 +45,21 @@ model_list:
     - claude-4.6-opus-high-thinking
     - -p
   model_name: claude-4.6-opus-high-thinking
+- litellm_params:
+    agent: kiro
+    custom_llm_provider: acp
+    model: auto
+  model_name: auto
+- litellm_params:
+    agent: kiro
+    custom_llm_provider: acp
+    model: claude-haiku-4.5
+  model_name: claude-haiku-4.5
+- litellm_params:
+    agent: kiro
+    custom_llm_provider: acp
+    model: claude-sonnet-4.5
+  model_name: claude-sonnet-4.5
 litellm_settings:
   custom_provider_map:
   - custom_handler: router.router_handler
