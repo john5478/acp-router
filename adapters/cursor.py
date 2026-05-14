@@ -8,5 +8,6 @@ class CursorAdapter(StaticAdapter):
             default_bin="agent",
             default_args=["acp"],
             default_mode_id="agent",
+            default_teardown_cli_command=["rm", '-rf', '/Users/john/.cursor/acp-sessions/{session_id}'],
             env_var_prefix="CURSOR"
         )

@@ -8,7 +8,9 @@ class GeminiAdapter(StaticAdapter):
             default_bin="gemini",
             default_args=["--acp"],
             default_mode_id="default",
-            default_bootstrap_commands=["/yolo"],
+            default_teardown_cli_command=[
+                "gemini", "--delete-session", "{session_id}"
+            ],
             aliases=["gemini-cli"],
             env_var_prefix="GEMINI",
         )

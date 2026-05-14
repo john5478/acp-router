@@ -1,55 +1,24 @@
 model_list:
 - litellm_params:
-    agent: cursor
+    agent: gemini
     custom_llm_provider: acp
-    model: 'default[]'
-  model_name: default
+    model: auto-gemini-3
+  model_name: auto-gemini-3
 - litellm_params:
-    drop_params: true
-    agent: cursor
+    agent: gemini
     custom_llm_provider: acp
-    model: gpt-5.3-codex
-    session_model_cli_command:
-    - agent
-    - --model
-    - gpt-5.3-codex
-    - -p
-  model_name: gpt-5.3-codex
+    model: gemini-3-flash-preview
+  model_name: gemini-3-flash-preview
 - litellm_params:
-    agent: cursor
+    agent: gemini
     custom_llm_provider: acp
-    model: gemini-3.1-pro
-    session_model_cli_command:
-    - agent
-    - --model
-    - gemini-3.1-pro
-    - -p
-  model_name: gemini-3.1-pro
-- litellm_params:
-    agent: cursor
-    custom_llm_provider: acp
-    model: claude-4.6-sonnet-medium-thinking
-    session_model_cli_command:
-    - agent
-    - --model
-    - claude-4.6-sonnet-medium-thinking
-    - -p
-  model_name: claude-4.6-sonnet-medium-thinking
-- litellm_params:
-    agent: cursor
-    custom_llm_provider: acp
-    model: claude-4.6-opus-high-thinking
-    session_model_cli_command:
-    - agent
-    - --model
-    - claude-4.6-opus-high-thinking
-    - -p
-  model_name: claude-4.6-opus-high-thinking
+    model: gemini-3.1-pro-preview
+  model_name: gemini-3.1-pro-preview
 - litellm_params:
     agent: kiro
     custom_llm_provider: acp
     model: auto
-  model_name: auto
+  model_name: auto-kiro
 - litellm_params:
     agent: kiro
     custom_llm_provider: acp
