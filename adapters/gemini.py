@@ -7,9 +7,13 @@ class GeminiAdapter(StaticAdapter):
             agent_id="gemini",
             default_bin="gemini",
             default_args=["--acp"],
-            default_mode_id="default",
+            default_mode_id="yolo",
             default_teardown_cli_command=[
-                "gemini", "--delete-session", "{session_id}"
+                "/bin/bash", "-c",
+                (
+                    "gemini --delete-session {session_id} && "
+                    "cd / && gemini --delete-session {session_id}"
+                )
             ],
             aliases=["gemini-cli"],
             env_var_prefix="GEMINI",

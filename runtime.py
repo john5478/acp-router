@@ -181,7 +181,7 @@ class Runtime:
                 if spec.teardown_cli_command and session and hasattr(session, "session_id"):
                     try:
                         cmd_args = [
-                            arg.replace("{session_id}", session.session_id)
+                            arg.format(session_id=session.session_id)
                             for arg in spec.teardown_cli_command
                         ]
                         proc = await asyncio.create_subprocess_exec(
@@ -191,7 +191,7 @@ class Runtime:
                         )
                         # Wait briefly for it to complete, but don't block forever
                         try:
-                            await asyncio.wait_for(proc.wait(), timeout=5.0)
+                            await asyncio.wait_for(proc.wait(), timeout=10.0)
                         except asyncio.TimeoutError:
                             if proc.returncode is None:
                                 try:
