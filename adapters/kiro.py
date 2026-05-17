@@ -8,7 +8,13 @@ class KiroAdapter(StaticAdapter):
             default_bin="kiro-cli",
             default_args=["acp", "-a"],
             default_mode_id="kiro_default",
-            default_teardown_cli_command=["kiro-cli", "chat", "-d", "{session_id}"],
+            default_teardown_cli_command=[
+                "/bin/bash", "-c",
+                (
+                    "kiro-cli chat -d {session_id} || "
+                    "cd / && kiro-cli chat -d {session_id}"
+                )
+            ],
             aliases=["kiro-cli"],
             env_var_prefix="KIRO",
         )
