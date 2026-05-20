@@ -1,18 +1,24 @@
 import asyncio
+import json
+import logging
 import os
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List
+from typing import Any, AsyncIterator, Dict, List, Optional
 
 from acp import spawn_agent_process, text_block
 from litellm.types.utils import GenericStreamingChunk
 
 from client import AgentClient
+from errors import raise_provider_error, raise_stream_interrupted, ProviderErrorInfo
 from schemas import AgentSpec
+from stream_types import StreamRequest
 from utils import (
     common_existing_parent,
     content_blocks_to_text,
     extract_existing_paths_from_text,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class Runtime:
@@ -71,7 +77,7 @@ class Runtime:
         finally:
             client.suppress_stream = False
 
-    async def run_stream(
+    async def run_acp_stream(
         self,
         *,
         spec: AgentSpec,
@@ -213,3 +219,154 @@ class Runtime:
                 "total_tokens": 0,
             },
         }
+
+    async def run_cli_stream(
+        self,
+        *,
+        spec: AgentSpec,
+        request: StreamRequest,
+        adapter: Any,
+    ) -> AsyncIterator[GenericStreamingChunk]:
+        """Execute a pure CLI tool and stream JSON output."""
+        cwd = self.resolve_cwd(request.kwargs, request.messages)
+        optional_params = request.kwargs.get("optional_params", {}) or {}
+        
+        session_id: Optional[str] = None
+        has_emitted_text = False
+        
+        # Build template context
+        context = {
+            "agent_id": spec.agent_id,
+            "mode_id": spec.mode_id or "",
+            "session_model_id": spec.session_model_id or "",
+            "model": request.model,
+            "cwd": cwd,
+            "prompt_text": request.prompt_text,
+            "messages_json": json.dumps(request.messages, ensure_ascii=False),
+        }
+        context.update(optional_params)
+        
+        # Format args with template context
+        try:
+            formatted_args = [arg.format_map(context) for arg in spec.args]
+        except KeyError as e:
+            raise_provider_error(
+                ProviderErrorInfo(
+                    message=f"Template variable not found: {e}",
+                    status_code=400,
+                    code="template_error",
+                ),
+                model=request.model,
+            )
+        
+        # Spawn subprocess
+        proc = await asyncio.create_subprocess_exec(
+            spec.bin,
+            *formatted_args,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+            cwd=cwd,
+        )
+        
+        try:
+            # Read stdout line by line
+            assert proc.stdout is not None
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    break
+                
+                line_str = line.decode("utf-8", errors="replace").strip()
+                if not line_str:
+                    continue
+                
+                # Try to parse JSON
+                try:
+                    data = json.loads(line_str)
+                except json.JSONDecodeError:
+                    logger.debug(f"Failed to parse JSON: {line_str}")
+                    continue
+                
+                # Ensure data is dict
+                if not isinstance(data, dict):
+                    logger.debug(f"Event is not a dict: {type(data)}")
+                    continue
+                
+                # Parse event with adapter
+                result = adapter.parse_event(data)
+                
+                # Update session_id if provided
+                if result.session_id:
+                    session_id = result.session_id
+                
+                # Yield text if present
+                if result.kind == "text" and result.text:
+                    has_emitted_text = True
+                    yield {
+                        "finish_reason": None,
+                        "index": 0,
+                        "is_finished": False,
+                        "text": result.text,
+                        "tool_use": None,
+                        "usage": None,
+                    }
+            
+            # Wait for process to complete
+            exit_code = await proc.wait()
+            
+        finally:
+            # Execute teardown if applicable
+            if spec.teardown_cli_command and session_id:
+                try:
+                    teardown_context = {"session_id": session_id}
+                    teardown_args = [
+                        arg.format_map(teardown_context)
+                        for arg in spec.teardown_cli_command
+                    ]
+                    teardown_proc = await asyncio.create_subprocess_exec(
+                        *teardown_args,
+                        stdout=asyncio.subprocess.DEVNULL,
+                        stderr=asyncio.subprocess.DEVNULL,
+                    )
+                    try:
+                        await asyncio.wait_for(teardown_proc.wait(), timeout=30.0)
+                    except asyncio.TimeoutError:
+                        if teardown_proc.returncode is None:
+                            try:
+                                teardown_proc.kill()
+                            except Exception:
+                                pass
+                        logger.warning("Teardown command timed out")
+                except Exception as e:
+                    logger.warning(f"Teardown failed: {e}")
+        
+        # Handle exit code
+        if exit_code == 0:
+            yield {
+                "finish_reason": "stop",
+                "index": 0,
+                "is_finished": True,
+                "text": "",
+                "tool_use": None,
+                "usage": {
+                    "prompt_tokens": 0,
+                    "completion_tokens": 0,
+                    "total_tokens": 0,
+                },
+            }
+        elif not has_emitted_text:
+            # Pre-stream failure
+            raise_provider_error(
+                ProviderErrorInfo(
+                    message=f"CLI exited with code {exit_code}",
+                    status_code=500,
+                    code="cli_error",
+                ),
+                model=request.model,
+            )
+        else:
+            # Mid-stream failure
+            raise_stream_interrupted(
+                f"CLI exited with code {exit_code} after emitting text",
+                model=request.model,
+            )

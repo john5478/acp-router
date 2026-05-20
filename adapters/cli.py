@@ -4,19 +4,20 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 from litellm.types.utils import GenericStreamingChunk
 
 from schemas import AgentSpec
-from stream_types import StreamRequest
+from stream_types import StreamRequest, StreamParseResult
 from utils import coerce_list
 from .base import Adapter
 
 
-class StaticAdapter(Adapter):
+class CliAdapter(Adapter):
+    """Adapter for wrapping pure CLI tools that output JSON streaming."""
+
     def __init__(
         self,
         agent_id: str,
         default_bin: str,
         default_args: List[str],
-        default_mode_id: Optional[str] = "code",
-        default_bootstrap_commands: Optional[List[str]] = None,
+        default_mode_id: Optional[str] = None,
         default_teardown_cli_command: Optional[List[str]] = None,
         aliases: Optional[List[str]] = None,
         env_var_prefix: Optional[str] = None,
@@ -25,7 +26,6 @@ class StaticAdapter(Adapter):
         self.default_bin = default_bin
         self.default_args = list(default_args)
         self.default_mode_id = default_mode_id
-        self.default_bootstrap_commands = list(default_bootstrap_commands or [])
         self.default_teardown_cli_command = list(default_teardown_cli_command or [])
         self.aliases = [a.strip().lower() for a in (aliases or [])]
         self.env_var_prefix = (env_var_prefix or self.agent_id).upper().replace("-", "_")
@@ -60,16 +60,6 @@ class StaticAdapter(Adapter):
         if not session_model_id:
             session_model_id = model.strip()
 
-        bootstrap_value = (
-            optional_params.get(f"{self.agent_id}_bootstrap_commands")
-            or optional_params.get("bootstrap_commands")
-        )
-        bootstrap_commands = (
-            coerce_list(bootstrap_value)
-            if bootstrap_value is not None
-            else list(self.default_bootstrap_commands)
-        )
-
         teardown_cli_value = (
             optional_params.get(f"{self.agent_id}_teardown_cli_command")
             or optional_params.get("teardown_cli_command")
@@ -80,26 +70,31 @@ class StaticAdapter(Adapter):
             else list(self.default_teardown_cli_command)
         )
 
-        session_model_cli_value = (
-            optional_params.get(f"{self.agent_id}_session_model_cli_command")
-            or optional_params.get("session_model_cli_command")
-        )
-        session_model_cli_command = (
-            coerce_list(session_model_cli_value)
-            if session_model_cli_value is not None
-            else None
-        )
-
         return AgentSpec(
             agent_id=self.agent_id,
             bin=str(bin_value),
             args=[str(x) for x in args],
             mode_id=str(mode_id) if mode_id else None,
             session_model_id=str(session_model_id) if session_model_id else None,
-            bootstrap_commands=[str(x) for x in bootstrap_commands],
+            bootstrap_commands=[],
             teardown_cli_command=[str(x) for x in teardown_cli_command] if teardown_cli_command else None,
-            session_model_cli_command=[str(x) for x in session_model_cli_command] if session_model_cli_command else None,
+            session_model_cli_command=None,
         )
+
+    def parse_event(self, data: Dict[str, Any]) -> StreamParseResult:
+        """Parse a single JSON event from CLI output.
+        
+        Default behavior:
+        - Extract session_id from data["session_id"] if present
+        - Return text if type=="message" and role=="assistant"
+        """
+        session_id = data.get("session_id")
+        
+        if data.get("type") == "message" and data.get("role") == "assistant":
+            text = data.get("content", "")
+            return StreamParseResult(kind="text", text=str(text), session_id=session_id)
+        
+        return StreamParseResult(kind="noop", text="", session_id=session_id)
 
     async def stream(
         self,
@@ -107,10 +102,9 @@ class StaticAdapter(Adapter):
         spec: AgentSpec,
         request: StreamRequest,
     ) -> AsyncIterator[GenericStreamingChunk]:
-        async for chunk in runtime.run_acp_stream(
+        async for chunk in runtime.run_cli_stream(
             spec=spec,
-            prompt_text=request.prompt_text,
-            kwargs=request.kwargs,
-            messages=request.messages,
+            request=request,
+            adapter=self,
         ):
             yield chunk

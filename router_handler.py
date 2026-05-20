@@ -12,6 +12,7 @@ from litellm.types.utils import (
 
 from registry import Registry
 from runtime import Runtime
+from stream_types import StreamRequest
 from utils import messages_to_prompt, normalize_incoming_messages
 
 
@@ -29,13 +30,15 @@ class RouterHandler(CustomLLM):
         adapter = self.registry.resolve(model=model, optional_params=optional_params)
         spec = adapter.build_spec(model=model, optional_params=optional_params)
         prompt_text = messages_to_prompt(messages, tools=tools) or "User: Hello"
-
-        async for chunk in self.runtime.run_stream(
-            spec=spec,
+        
+        request = StreamRequest(
+            model=model,
             prompt_text=prompt_text,
             kwargs=kwargs,
             messages=messages,
-        ):
+        )
+
+        async for chunk in adapter.stream(self.runtime, spec, request):
             yield chunk
 
     async def acompletion(self, *args, **kwargs) -> ModelResponse:
