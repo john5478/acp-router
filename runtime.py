@@ -31,10 +31,13 @@ class Runtime:
         optional_params = kwargs.get("optional_params", {}) or {}
         metadata = kwargs.get("metadata") or optional_params.get("metadata") or {}
 
+        print(f"kwargs: {kwargs}")
+        print(f"messages: {messages}")
         for source in (optional_params, metadata):
             if not isinstance(source, dict):
                 continue
             for key in ("cwd", "workspace_path", "project_root", "root_dir", "path"):
+                print(f"source: {source}")
                 value = source.get(key)
                 if isinstance(value, str) and value.strip():
                     p = Path(value).expanduser()
@@ -51,6 +54,7 @@ class Runtime:
         for blob in text_blobs:
             found_paths.extend(extract_existing_paths_from_text(blob))
 
+        print(f"found_paths: {found_paths}")
         inferred = common_existing_parent(found_paths)
         if inferred is not None:
             return str(inferred)
@@ -194,6 +198,7 @@ class Runtime:
                     *teardown_args,
                     stdout=asyncio.subprocess.DEVNULL,
                     stderr=asyncio.subprocess.DEVNULL,
+                    cwd=cwd,
                 )
                 # Wait briefly for it to complete, but don't block forever
                 try:
@@ -258,13 +263,16 @@ class Runtime:
                 ),
                 model=request.model,
             )
+        
+        # Log the command being executed
+        logger.info(f"Executing CLI: {spec.bin} {' '.join(formatted_args)}")
 
         # Spawn subprocess
         proc = await asyncio.create_subprocess_exec(
             spec.bin,
             *formatted_args,
             stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.DEVNULL,
+            stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
         )
 
@@ -275,7 +283,6 @@ class Runtime:
                 line = await proc.stdout.readline()
                 if not line:
                     break
-                print(f"line: {line}")
 
                 line_str = line.decode("utf-8", errors="replace").strip()
                 if not line_str:
@@ -286,7 +293,6 @@ class Runtime:
                     data = json.loads(line_str)
                     print(f"jsondata: {data}")
                 except json.JSONDecodeError:
-                    print(f"Failed to parse JSON: {line_str}")
                     logger.debug(f"Failed to parse JSON: {line_str}")
                     continue
 
@@ -316,6 +322,14 @@ class Runtime:
 
             # Wait for process to complete
             exit_code = await proc.wait()
+            
+            # Capture stderr for debugging
+            stderr_output = b""
+            if proc.stderr:
+                stderr_output = await proc.stderr.read()
+                stderr_text = stderr_output.decode("utf-8", errors="replace").strip()
+                if stderr_text:
+                    logger.error(f"CLI stderr (exit {exit_code}): {stderr_text}")
 
         finally:
             # Execute teardown if applicable
@@ -329,6 +343,7 @@ class Runtime:
                         *teardown_args,
                         stdout=asyncio.subprocess.DEVNULL,
                         stderr=asyncio.subprocess.DEVNULL,
+                        cwd=cwd,
                     )
                     try:
                         await asyncio.wait_for(teardown_proc.wait(), timeout=30.0)
@@ -357,20 +372,28 @@ class Runtime:
                 },
             }
         elif not has_emitted_text:
-            # Pre-stream failure
+            # Pre-stream failure - include stderr in error message
+            stderr_text = stderr_output.decode("utf-8", errors="replace").strip() if stderr_output else ""
+            error_msg = f"CLI exited with code {exit_code}"
+            if stderr_text:
+                error_msg += f": {stderr_text}"
             raise_provider_error(
                 ProviderErrorInfo(
-                    message=f"CLI exited with code {exit_code}",
+                    message=error_msg,
                     status_code=500,
                     code="cli_error",
                 ),
                 model=request.model,
             )
         else:
-            # Mid-stream failure
+            # Mid-stream failure - include stderr in error message
+            stderr_text = stderr_output.decode("utf-8", errors="replace").strip() if stderr_output else ""
+            error_msg = f"CLI exited with code {exit_code} after emitting text"
+            if stderr_text:
+                error_msg += f": {stderr_text}"
             raise_provider_error(
                 ProviderErrorInfo(
-                    message=f"CLI exited with code {exit_code} after emitting text",
+                    message=error_msg,
                     status_code=500,
                     code="cli_error",
                 ),

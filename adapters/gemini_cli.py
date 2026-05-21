@@ -8,7 +8,7 @@ class GeminiCliAdapter(CliAdapter):
             default_bin="gemini",
             default_args=[
                 "-y", "-m", "{session_model_id}",
-                "-o", "stream-json", "-p", "{prompt_text}"
+                "-o", "stream-json", "--skip-trust", "-p", "{prompt_text}"
             ],
             default_mode_id="yolo",
             default_teardown_cli_command=[
