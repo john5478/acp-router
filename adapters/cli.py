@@ -76,24 +76,22 @@ class CliAdapter(Adapter):
             args=[str(x) for x in args],
             mode_id=str(mode_id) if mode_id else None,
             session_model_id=str(session_model_id) if session_model_id else None,
-            bootstrap_commands=[],
-            teardown_cli_command=[str(x) for x in teardown_cli_command] if teardown_cli_command else None,
-            session_model_cli_command=None,
+            teardown_cli_command=[str(x) for x in teardown_cli_command] if teardown_cli_command else None
         )
 
     def parse_event(self, data: Dict[str, Any]) -> StreamParseResult:
         """Parse a single JSON event from CLI output.
-        
+
         Default behavior:
         - Extract session_id from data["session_id"] if present
         - Return text if type=="message" and role=="assistant"
         """
         session_id = data.get("session_id")
-        
+
         if data.get("type") == "message" and data.get("role") == "assistant":
             text = data.get("content", "")
             return StreamParseResult(kind="text", text=str(text), session_id=session_id)
-        
+
         return StreamParseResult(kind="noop", text="", session_id=session_id)
 
     async def stream(

@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass
 from typing import Optional
 
-from litellm import APIError, BadRequestError
+from litellm import APIError, BadRequestError, InternalServerError
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ def raise_provider_error(
             "status_code": error_info.status_code,
         },
     )
-    
+
     if error_info.status_code == 400:
         raise BadRequestError(
             message=error_info.message,
@@ -38,11 +38,10 @@ def raise_provider_error(
             llm_provider=provider,
         )
     else:
-        raise APIError(
-            status_code=error_info.status_code,
+        raise InternalServerError(
             message=error_info.message,
-            model=model,
             llm_provider=provider,
+            model=model,
         )
 
 

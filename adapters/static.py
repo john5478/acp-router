@@ -109,8 +109,6 @@ class StaticAdapter(Adapter):
     ) -> AsyncIterator[GenericStreamingChunk]:
         async for chunk in runtime.run_acp_stream(
             spec=spec,
-            prompt_text=request.prompt_text,
-            kwargs=request.kwargs,
-            messages=request.messages,
+            request=request,
         ):
             yield chunk

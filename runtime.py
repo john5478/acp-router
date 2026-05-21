@@ -81,15 +81,14 @@ class Runtime:
         self,
         *,
         spec: AgentSpec,
-        prompt_text: str,
-        kwargs: Dict[str, Any],
-        messages: List[Dict[str, Any]],
+        request: StreamRequest,
     ) -> AsyncIterator[GenericStreamingChunk]:
-        optional_params = kwargs.get("optional_params", {}) or {}
+        optional_params = request.kwargs.get("optional_params", {}) or {}
         protocol_version = int(optional_params.get("protocol_version", 1))
-        cwd = self.resolve_cwd(kwargs, messages)
+        cwd = self.resolve_cwd(request.kwargs, request.messages)
         mcp_servers = optional_params.get("mcp_servers") or []
         permission_mode = str(optional_params.get("permission_mode", "auto_allow"))
+        session_id: Optional[str] = None
 
         client = AgentClient(permission_mode=permission_mode)
 
@@ -123,12 +122,13 @@ class Runtime:
                 cwd=str(cwd),
                 mcp_servers=mcp_servers,
             )
+            session_id = session.session_id
 
             if spec.session_model_id and not model_set_by_cli:
                 try:
                     set_model_func = getattr(conn, "set_session_model", getattr(conn, "set_model", None))
                     if callable(set_model_func):
-                        await set_model_func(session_id=session.session_id, model_id=spec.session_model_id)
+                        await set_model_func(session_id=session_id, model_id=spec.session_model_id)
                 except Exception:
                     pass
 
@@ -136,13 +136,13 @@ class Runtime:
                 try:
                     set_mode_func = getattr(conn, "set_session_mode", getattr(conn, "set_mode", None))
                     if callable(set_mode_func):
-                        await set_mode_func(session_id=session.session_id, mode_id=spec.mode_id)
+                        await set_mode_func(session_id=session_id, mode_id=spec.mode_id)
                 except Exception:
                     pass
 
             await self.bootstrap_agent_session(
                 conn=conn,
-                session_id=session.session_id,
+                session_id=session_id,
                 client=client,
                 spec=spec,
             )
@@ -183,29 +183,30 @@ class Runtime:
                 if not prompt_task.done():
                     prompt_task.cancel()
 
-                # Execute teardown CLI command if specified
-                if spec.teardown_cli_command and session and hasattr(session, "session_id"):
-                    try:
-                        cmd_args = [
-                            arg.format(session_id=session.session_id)
-                            for arg in spec.teardown_cli_command
-                        ]
-                        proc = await asyncio.create_subprocess_exec(
-                            *cmd_args,
-                            stdout=asyncio.subprocess.DEVNULL,
-                            stderr=asyncio.subprocess.DEVNULL,
-                        )
-                        # Wait briefly for it to complete, but don't block forever
+        # Execute teardown CLI command if specified
+        if spec.teardown_cli_command and session_id:
+            try:
+                teardown_args = [
+                    arg.format(session_id=session_id)
+                    for arg in spec.teardown_cli_command
+                ]
+                teardown_proc = await asyncio.create_subprocess_exec(
+                    *teardown_args,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
+                )
+                # Wait briefly for it to complete, but don't block forever
+                try:
+                    await asyncio.wait_for(teardown_proc.wait(), timeout=30.0)
+                except asyncio.TimeoutError:
+                    if teardown_proc.returncode is None:
                         try:
-                            await asyncio.wait_for(proc.wait(), timeout=30.0)
-                        except asyncio.TimeoutError:
-                            if proc.returncode is None:
-                                try:
-                                    proc.kill()
-                                except Exception:
-                                    pass
-                    except Exception:
-                        pass
+                            teardown_proc.kill()
+                        except Exception:
+                            pass
+                    logger.warning("Teardown command timed out")
+            except Exception:
+                logger.warning(f"Teardown failed: {e}")
 
         yield {
             "finish_reason": "stop",
@@ -228,12 +229,11 @@ class Runtime:
         adapter: Any,
     ) -> AsyncIterator[GenericStreamingChunk]:
         """Execute a pure CLI tool and stream JSON output."""
-        cwd = self.resolve_cwd(request.kwargs, request.messages)
         optional_params = request.kwargs.get("optional_params", {}) or {}
-        
+        cwd = self.resolve_cwd(request.kwargs, request.messages)
         session_id: Optional[str] = None
         has_emitted_text = False
-        
+
         # Build template context
         context = {
             "agent_id": spec.agent_id,
@@ -245,7 +245,7 @@ class Runtime:
             "messages_json": json.dumps(request.messages, ensure_ascii=False),
         }
         context.update(optional_params)
-        
+
         # Format args with template context
         try:
             formatted_args = [arg.format_map(context) for arg in spec.args]
@@ -258,7 +258,7 @@ class Runtime:
                 ),
                 model=request.model,
             )
-        
+
         # Spawn subprocess
         proc = await asyncio.create_subprocess_exec(
             spec.bin,
@@ -267,7 +267,7 @@ class Runtime:
             stderr=asyncio.subprocess.DEVNULL,
             cwd=cwd,
         )
-        
+
         try:
             # Read stdout line by line
             assert proc.stdout is not None
@@ -275,30 +275,30 @@ class Runtime:
                 line = await proc.stdout.readline()
                 if not line:
                     break
-                
+
                 line_str = line.decode("utf-8", errors="replace").strip()
                 if not line_str:
                     continue
-                
+
                 # Try to parse JSON
                 try:
                     data = json.loads(line_str)
                 except json.JSONDecodeError:
                     logger.debug(f"Failed to parse JSON: {line_str}")
                     continue
-                
+
                 # Ensure data is dict
                 if not isinstance(data, dict):
                     logger.debug(f"Event is not a dict: {type(data)}")
                     continue
-                
+
                 # Parse event with adapter
                 result = adapter.parse_event(data)
-                
+
                 # Update session_id if provided
                 if result.session_id:
                     session_id = result.session_id
-                
+
                 # Yield text if present
                 if result.kind == "text" and result.text:
                     has_emitted_text = True
@@ -310,17 +310,16 @@ class Runtime:
                         "tool_use": None,
                         "usage": None,
                     }
-            
+
             # Wait for process to complete
             exit_code = await proc.wait()
-            
+
         finally:
             # Execute teardown if applicable
             if spec.teardown_cli_command and session_id:
                 try:
-                    teardown_context = {"session_id": session_id}
                     teardown_args = [
-                        arg.format_map(teardown_context)
+                        arg.format(session_id=session_id)
                         for arg in spec.teardown_cli_command
                     ]
                     teardown_proc = await asyncio.create_subprocess_exec(
@@ -339,7 +338,7 @@ class Runtime:
                         logger.warning("Teardown command timed out")
                 except Exception as e:
                     logger.warning(f"Teardown failed: {e}")
-        
+
         # Handle exit code
         if exit_code == 0:
             yield {
@@ -366,7 +365,11 @@ class Runtime:
             )
         else:
             # Mid-stream failure
-            raise_stream_interrupted(
-                f"CLI exited with code {exit_code} after emitting text",
+            raise_provider_error(
+                ProviderErrorInfo(
+                    message=f"CLI exited with code {exit_code} after emitting text",
+                    status_code=500,
+                    code="cli_error",
+                ),
                 model=request.model,
             )
