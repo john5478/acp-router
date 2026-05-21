@@ -1,7 +1,7 @@
 import os
 
 # from adapters import KimiAdapter
-from adapters import GeminiAdapter, OpenCodeAdapter, CursorAdapter, KiroAdapter, CliAdapter
+from adapters import *
 from registry import Registry
 from router_handler import RouterHandler
 
@@ -13,10 +13,6 @@ registry.register(KiroAdapter())
 registry.register(GeminiAdapter())
 registry.register(OpenCodeAdapter())
 registry.register(CursorAdapter())
-registry.register(CliAdapter(
-    agent_id="test-cli",
-    default_bin="python",
-    default_args=["-m", "tests.mock_cli"],
-))
+registry.register(GeminiCliAdapter())
 
 router_handler = RouterHandler(registry)

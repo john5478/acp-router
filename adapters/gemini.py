@@ -15,6 +15,5 @@ class GeminiAdapter(StaticAdapter):
                     "cd / && gemini --delete-session {session_id}"
                 )
             ],
-            aliases=["gemini-cli"],
             env_var_prefix="GEMINI",
         )

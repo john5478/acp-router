@@ -150,7 +150,7 @@ class Runtime:
             prompt_task = asyncio.create_task(
                 conn.prompt(
                     session_id=session.session_id,
-                    prompt=[text_block(prompt_text)],
+                    prompt=[text_block(request.prompt_text)],
                 )
             )
 
@@ -270,11 +270,12 @@ class Runtime:
 
         try:
             # Read stdout line by line
-            assert proc.stdout is not None
+            # assert proc.stdout is not None
             while True:
                 line = await proc.stdout.readline()
                 if not line:
                     break
+                print(f"line: {line}")
 
                 line_str = line.decode("utf-8", errors="replace").strip()
                 if not line_str:
@@ -283,7 +284,9 @@ class Runtime:
                 # Try to parse JSON
                 try:
                     data = json.loads(line_str)
+                    print(f"jsondata: {data}")
                 except json.JSONDecodeError:
+                    print(f"Failed to parse JSON: {line_str}")
                     logger.debug(f"Failed to parse JSON: {line_str}")
                     continue
 

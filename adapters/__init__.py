@@ -3,6 +3,6 @@ from .gemini import GeminiAdapter
 from .opencode import OpenCodeAdapter
 from .cursor import CursorAdapter
 from .kiro import KiroAdapter
-from .cli import CliAdapter
+from .gemini_cli import GeminiCliAdapter
 
-__all__ = ["KimiAdapter", "GeminiAdapter", "OpenCodeAdapter", "CursorAdapter", "CliAdapter"]
+__all__ = ["KimiAdapter", "GeminiAdapter", "OpenCodeAdapter", "CursorAdapter", "KiroAdapter", "GeminiCliAdapter"]

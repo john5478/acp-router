@@ -1,40 +1,35 @@
 model_list:
 - litellm_params:
-    agent: gemini
-    custom_llm_provider: acp
+    agent: gemini_cli
+    custom_llm_provider: local
     model: auto-gemini-3
   model_name: auto-gemini-3
 - litellm_params:
-    agent: gemini
-    custom_llm_provider: acp
+    agent: gemini_cli
+    custom_llm_provider: local
     model: gemini-3-flash-preview
   model_name: gemini-3-flash-preview
 - litellm_params:
-    agent: gemini
-    custom_llm_provider: acp
+    agent: gemini_cli
+    custom_llm_provider: local
     model: gemini-3.1-pro-preview
   model_name: gemini-3.1-pro-preview
 - litellm_params:
     agent: kiro
-    custom_llm_provider: acp
+    custom_llm_provider: local
     model: auto
   model_name: auto-kiro
 - litellm_params:
     agent: kiro
-    custom_llm_provider: acp
+    custom_llm_provider: local
     model: claude-haiku-4.5
   model_name: claude-haiku-4.5
 - litellm_params:
     agent: kiro
-    custom_llm_provider: acp
+    custom_llm_provider: local
     model: claude-sonnet-4.5
   model_name: claude-sonnet-4.5
-- litellm_params:
-    agent: test-cli
-    custom_llm_provider: acp
-    model: test-cli-model
-  model_name: acp/test-cli
 litellm_settings:
   custom_provider_map:
   - custom_handler: router.router_handler
-    provider: acp
+    provider: local
