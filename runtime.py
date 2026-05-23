@@ -3,15 +3,12 @@ import json
 import logging
 import os
 from pathlib import Path
-from typing import Any, AsyncIterator, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-from acp import spawn_agent_process, text_block
-from litellm.types.utils import GenericStreamingChunk
+from acp import text_block
 
 from client import AgentClient
-from errors import raise_provider_error, raise_stream_interrupted, ProviderErrorInfo
 from schemas import AgentSpec
-from stream_types import StreamRequest
 from utils import (
     common_existing_parent,
     content_blocks_to_text,
@@ -81,321 +78,48 @@ class Runtime:
         finally:
             client.suppress_stream = False
 
-    async def run_acp_stream(
-        self,
-        *,
-        spec: AgentSpec,
-        request: StreamRequest,
-    ) -> AsyncIterator[GenericStreamingChunk]:
-        optional_params = request.kwargs.get("optional_params", {}) or {}
-        protocol_version = int(optional_params.get("protocol_version", 1))
-        cwd = self.resolve_cwd(request.kwargs, request.messages)
-        mcp_servers = optional_params.get("mcp_servers") or []
-        permission_mode = str(optional_params.get("permission_mode", "auto_allow"))
-        session_id: Optional[str] = None
-
-        client = AgentClient(permission_mode=permission_mode)
-
-        model_set_by_cli = False
-        if spec.session_model_cli_command:
-            try:
-                cmd_args = [
-                    arg.replace("{model_id}", spec.session_model_id or "")
-                    for arg in spec.session_model_cli_command
-                ]
-                proc = await asyncio.create_subprocess_exec(
-                    *cmd_args,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                )
-                try:
-                    await asyncio.wait_for(proc.wait(), timeout=5.0)
-                    model_set_by_cli = True
-                except asyncio.TimeoutError:
-                    if proc.returncode is None:
-                        try:
-                            proc.kill()
-                        except Exception:
-                            pass
-            except Exception:
-                pass
-
-        async with spawn_agent_process(client, spec.bin, *spec.args) as (conn, _proc):
-            await conn.initialize(protocol_version=protocol_version)
-            session = await conn.new_session(
-                cwd=str(cwd),
-                mcp_servers=mcp_servers,
-            )
-            session_id = session.session_id
-
-            if spec.session_model_id and not model_set_by_cli:
-                try:
-                    set_model_func = getattr(conn, "set_session_model", getattr(conn, "set_model", None))
-                    if callable(set_model_func):
-                        await set_model_func(session_id=session_id, model_id=spec.session_model_id)
-                except Exception:
-                    pass
-
-            if spec.mode_id:
-                try:
-                    set_mode_func = getattr(conn, "set_session_mode", getattr(conn, "set_mode", None))
-                    if callable(set_mode_func):
-                        await set_mode_func(session_id=session_id, mode_id=spec.mode_id)
-                except Exception:
-                    pass
-
-            await self.bootstrap_agent_session(
-                conn=conn,
-                session_id=session_id,
-                client=client,
-                spec=spec,
-            )
-
-            prompt_task = asyncio.create_task(
-                conn.prompt(
-                    session_id=session.session_id,
-                    prompt=[text_block(request.prompt_text)],
-                )
-            )
-
-            try:
-                while True:
-                    if prompt_task.done() and client.queue.empty():
-                        break
-
-                    try:
-                        event = await asyncio.wait_for(client.queue.get(), timeout=0.1)
-                    except asyncio.TimeoutError:
-                        continue
-
-                    text = event.get("text") or ""
-                    if not text:
-                        continue
-
-                    yield {
-                        "finish_reason": None,
-                        "index": 0,
-                        "is_finished": False,
-                        "text": text,
-                        "tool_use": None,
-                        "usage": None,
-                    }
-
-                await prompt_task
-
-            finally:
-                if not prompt_task.done():
-                    prompt_task.cancel()
-
-        # Execute teardown CLI command if specified
-        if spec.teardown_cli_command and session_id:
-            try:
-                teardown_args = [
-                    arg.format(session_id=session_id)
-                    for arg in spec.teardown_cli_command
-                ]
-                teardown_proc = await asyncio.create_subprocess_exec(
-                    *teardown_args,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.DEVNULL,
-                    cwd=cwd,
-                )
-                # Wait briefly for it to complete, but don't block forever
-                try:
-                    await asyncio.wait_for(teardown_proc.wait(), timeout=30.0)
-                except asyncio.TimeoutError:
-                    if teardown_proc.returncode is None:
-                        try:
-                            teardown_proc.kill()
-                        except Exception:
-                            pass
-                    logger.warning("Teardown command timed out")
-            except Exception:
-                logger.warning(f"Teardown failed: {e}")
-
-        yield {
-            "finish_reason": "stop",
-            "index": 0,
-            "is_finished": True,
-            "text": "",
-            "tool_use": None,
-            "usage": {
-                "prompt_tokens": 0,
-                "completion_tokens": 0,
-                "total_tokens": 0,
-            },
-        }
-
-    async def run_cli_stream(
-        self,
-        *,
-        spec: AgentSpec,
-        request: StreamRequest,
-        adapter: Any,
-    ) -> AsyncIterator[GenericStreamingChunk]:
-        """Execute a pure CLI tool and stream JSON output."""
-        optional_params = request.kwargs.get("optional_params", {}) or {}
-        cwd = self.resolve_cwd(request.kwargs, request.messages)
-        session_id: Optional[str] = None
-        has_emitted_text = False
-
-        # Build template context
-        context = {
-            "agent_id": spec.agent_id,
-            "mode_id": spec.mode_id or "",
-            "session_model_id": spec.session_model_id or "",
-            "model": request.model,
-            "cwd": cwd,
-            "prompt_text": request.prompt_text,
-            "messages_json": json.dumps(request.messages, ensure_ascii=False),
-        }
-        context.update(optional_params)
-
-        # Format args with template context
+    async def execute_model_cli_command(self, spec: AgentSpec) -> None:
+        """Run the optional session model CLI command."""
+        if not spec.session_model_cli_command:
+            return
         try:
-            formatted_args = [arg.format_map(context) for arg in spec.args]
-        except KeyError as e:
-            raise_provider_error(
-                ProviderErrorInfo(
-                    message=f"Template variable not found: {e}",
-                    status_code=400,
-                    code="template_error",
-                ),
-                model=request.model,
+            cmd_args = [
+                arg.replace("{model_id}", spec.session_model_id or "")
+                for arg in spec.session_model_cli_command
+            ]
+            proc = await asyncio.create_subprocess_exec(
+                *cmd_args,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
             )
-        
-        # Log the command being executed
-        logger.info(f"Executing CLI: {spec.bin} {' '.join(formatted_args)}")
+            await asyncio.wait_for(proc.wait(), timeout=5.0)
+        except Exception:
+            pass
 
-        # Spawn subprocess
-        proc = await asyncio.create_subprocess_exec(
-            spec.bin,
-            *formatted_args,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=cwd,
-        )
-
+    async def execute_teardown(
+        self, spec: AgentSpec, session_id: Optional[str], cwd: str
+    ) -> None:
+        """Generic teardown executor used by all adapters."""
+        if not spec.teardown_cli_command or not session_id:
+            return
         try:
-            # Read stdout line by line
-            # assert proc.stdout is not None
-            while True:
-                line = await proc.stdout.readline()
-                if not line:
-                    break
-
-                line_str = line.decode("utf-8", errors="replace").strip()
-                if not line_str:
-                    continue
-
-                # Try to parse JSON
-                try:
-                    data = json.loads(line_str)
-                    print(f"jsondata: {data}")
-                except json.JSONDecodeError:
-                    logger.debug(f"Failed to parse JSON: {line_str}")
-                    continue
-
-                # Ensure data is dict
-                if not isinstance(data, dict):
-                    logger.debug(f"Event is not a dict: {type(data)}")
-                    continue
-
-                # Parse event with adapter
-                result = adapter.parse_event(data)
-
-                # Update session_id if provided
-                if result.session_id:
-                    session_id = result.session_id
-
-                # Yield text if present
-                if result.kind == "text" and result.text:
-                    has_emitted_text = True
-                    yield {
-                        "finish_reason": None,
-                        "index": 0,
-                        "is_finished": False,
-                        "text": result.text,
-                        "tool_use": None,
-                        "usage": None,
-                    }
-
-            # Wait for process to complete
-            exit_code = await proc.wait()
-            
-            # Capture stderr for debugging
-            stderr_output = b""
-            if proc.stderr:
-                stderr_output = await proc.stderr.read()
-                stderr_text = stderr_output.decode("utf-8", errors="replace").strip()
-                if stderr_text:
-                    logger.error(f"CLI stderr (exit {exit_code}): {stderr_text}")
-
-        finally:
-            # Execute teardown if applicable
-            if spec.teardown_cli_command and session_id:
-                try:
-                    teardown_args = [
-                        arg.format(session_id=session_id)
-                        for arg in spec.teardown_cli_command
-                    ]
-                    teardown_proc = await asyncio.create_subprocess_exec(
-                        *teardown_args,
-                        stdout=asyncio.subprocess.DEVNULL,
-                        stderr=asyncio.subprocess.DEVNULL,
-                        cwd=cwd,
-                    )
+            teardown_args = [
+                arg.format(session_id=session_id) for arg in spec.teardown_cli_command
+            ]
+            proc = await asyncio.create_subprocess_exec(
+                *teardown_args,
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+                cwd=cwd,
+            )
+            try:
+                await asyncio.wait_for(proc.wait(), timeout=30.0)
+            except asyncio.TimeoutError:
+                if proc.returncode is None:
                     try:
-                        await asyncio.wait_for(teardown_proc.wait(), timeout=30.0)
-                    except asyncio.TimeoutError:
-                        if teardown_proc.returncode is None:
-                            try:
-                                teardown_proc.kill()
-                            except Exception:
-                                pass
-                        logger.warning("Teardown command timed out")
-                except Exception as e:
-                    logger.warning(f"Teardown failed: {e}")
-
-        # Handle exit code
-        if exit_code == 0:
-            yield {
-                "finish_reason": "stop",
-                "index": 0,
-                "is_finished": True,
-                "text": "",
-                "tool_use": None,
-                "usage": {
-                    "prompt_tokens": 0,
-                    "completion_tokens": 0,
-                    "total_tokens": 0,
-                },
-            }
-        elif not has_emitted_text:
-            # Pre-stream failure - include stderr in error message
-            stderr_text = stderr_output.decode("utf-8", errors="replace").strip() if stderr_output else ""
-            error_msg = f"CLI exited with code {exit_code}"
-            if stderr_text:
-                error_msg += f": {stderr_text}"
-            raise_provider_error(
-                ProviderErrorInfo(
-                    message=error_msg,
-                    status_code=500,
-                    code="cli_error",
-                ),
-                model=request.model,
-            )
-        else:
-            # Mid-stream failure - include stderr in error message
-            stderr_text = stderr_output.decode("utf-8", errors="replace").strip() if stderr_output else ""
-            error_msg = f"CLI exited with code {exit_code} after emitting text"
-            if stderr_text:
-                error_msg += f": {stderr_text}"
-            raise_provider_error(
-                ProviderErrorInfo(
-                    message=error_msg,
-                    status_code=500,
-                    code="cli_error",
-                ),
-                model=request.model,
-            )
+                        proc.kill()
+                    except Exception:
+                        pass
+                logger.warning("Teardown command timed out")
+        except Exception as e:
+            logger.warning(f"Teardown failed: {e}")

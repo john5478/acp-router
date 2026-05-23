@@ -273,3 +273,24 @@ def coerce_list(value: Any) -> List[str]:
     if isinstance(value, str):
         return shlex.split(value)
     return [str(value)]
+
+def make_text_chunk(text: str) -> Dict[str, Any]:
+    return {
+        "finish_reason": None,
+        "index": 0,
+        "is_finished": False,
+        "text": text,
+        "tool_use": None,
+        "usage": None,
+    }
+
+
+def make_final_chunk() -> Dict[str, Any]:
+    return {
+        "finish_reason": "stop",
+        "index": 0,
+        "is_finished": True,
+        "text": "",
+        "tool_use": None,
+        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+    }
